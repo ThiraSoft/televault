@@ -1,0 +1,26 @@
+# Binaires et compilation
+main
+televault
+*.exe
+*.test
+*.out
+
+# Dossiers de données / téléchargements (ne jamais commiter ça)
+vault/
+downloads/
+dist/
+
+# Fichiers de configuration locaux (SECRETS !!!)
+.env
+.env.local
+
+# Fichiers système inutiles
+.DS_Store
+Thumbs.db
+*.bak
+
+# Sessions Telegram (si jamais tu changes le path par défaut)
+.telegram-vault-session
+.telegram-vault-index.enc
+vault
+*.bak
