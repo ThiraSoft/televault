@@ -1,9 +1,22 @@
-# Televault
+ # Televault
 
 > _Protocol: INFINITE_STORAGE // Security level: PARANOID (Zero-Knowledge)_
 
 Le stockage cloud personnel ultime sur Telegram.
 Chiffrement Authentifié du **contenu**, des **métadonnées** et de l'**index local**. Telegram ne voit que des blobs binaires aléatoires.
+
+---
+
+## ⚠️ DISCLAIMER (A LIRE AVANT DE PLEURER)
+
+**L'utilisation de ce logiciel peut entraîner le bannissement définitif de votre compte Telegram.**
+
+Ce tool utilise l'API de Telegram d'une manière qui n'est pas prévue par leurs Conditions d'Utilisation (stockage de fichiers pur et dur).
+- **NE PAS UTILISER** avec votre compte personnel principal.
+- **NOVA (et le développeur)** déclinent toute responsabilité en cas de perte de données, de ban, ou de crise de nerfs.
+- Utilisez un compte secondaire (burner) pour vos tests et stockages.
+
+**Vous êtes prévenus.**
 
 ---
 
