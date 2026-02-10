@@ -1,4 +1,4 @@
- # Televault
+# Televault
 
 > _Protocol: INFINITE_STORAGE // Security level: PARANOID (Zero-Knowledge)_
 
@@ -9,14 +9,15 @@ Chiffrement Authentifié du **contenu**, des **métadonnées** et de l'**index l
 
 ## ⚠️ DISCLAIMER (A LIRE AVANT DE PLEURER)
 
-**L'utilisation de ce logiciel peut entraîner le bannissement définitif de votre compte Telegram.**
+**L'utilisation de ce logiciel peut entraîner le bannissement définitif de ton compte Telegram.**
 
 Ce tool utilise l'API de Telegram d'une manière qui n'est pas prévue par leurs Conditions d'Utilisation (stockage de fichiers pur et dur).
-- **NE PAS UTILISER** avec votre compte personnel principal.
-- **NOVA (et le développeur)** déclinent toute responsabilité en cas de perte de données, de ban, ou de crise de nerfs.
-- Utilisez un compte secondaire (burner) pour vos tests et stockages.
 
-**Vous êtes prévenus.**
+- **NE PAS UTILISER** avec ton compte personnel principal.
+- **NOVA (et le développeur)** déclinent toute responsabilité en cas de perte de données, de ban, ou de crise de nerfs.
+- Utilise un compte secondaire (burner) pour tes tests et stockages.
+
+**Tu es prévenu.**
 
 ---
 

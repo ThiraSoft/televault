@@ -43,7 +43,7 @@ var (
 
 const (
 	ITERATIONS = 600000
-	VERSION    = "v6.6-PERM-SYNC"
+	VERSION    = "v6.7-ANTI-BAN"
 )
 
 func init() {
@@ -72,7 +72,7 @@ type FileIndex struct {
 type SecureHeader struct {
 	OriginalName string
 	Size         int64
-	Mode         os.FileMode // <-- AJOUT POUR PERMISSIONS
+	Mode         os.FileMode
 	CreatedAt    time.Time
 }
 
@@ -114,9 +114,6 @@ func deriveKey(password, salt []byte) []byte {
 }
 
 func generateID() string {
-	// b := make([]byte, 16)
-	// rand.Read(b)
-	// return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(b) + ".vault"
 	alphabet := "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 	id, _ := gonanoid.Generate(alphabet, 21)
 	return id + ".vault"
@@ -212,9 +209,20 @@ func main() {
 			fmt.Printf("📦 Upload batch: %d fichiers\n", len(filesToUpload))
 		}
 		runWithClient(ctx, func(ctx context.Context, client *telegram.Client, api *tg.Client) error {
-			for _, file := range filesToUpload {
+			for i, file := range filesToUpload {
 				if err := upload(ctx, api, index, file); err != nil {
 					fmt.Printf("❌ Echec: %v\n", err)
+				}
+
+				// --- ANTI-BAN DELAY ---
+				// Si ce n'est pas le dernier fichier, on attend un peu
+				if i < len(filesToUpload)-1 {
+					// Génère un nombre entre 0 et 4
+					n, _ := rand.Int(rand.Reader, big.NewInt(5))
+					// Délai total = 2s + (0..4s) = 2 à 6 secondes
+					delay := time.Duration(n.Int64()+2) * time.Second
+					fmt.Printf("⏳ Pause tactique anti-ban (%s)...\n", delay)
+					time.Sleep(delay)
 				}
 			}
 			return nil
@@ -229,7 +237,6 @@ func main() {
 		var ids []int
 		outDir := "."
 
-		// Parsing intelligent : Entier = ID, Autre = Dossier
 		for _, arg := range os.Args[2:] {
 			if id, err := strconv.Atoi(arg); err == nil {
 				ids = append(ids, id)
@@ -360,7 +367,7 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 	header := SecureHeader{
 		OriginalName: filepath.Base(filePath),
 		Size:         stat.Size(),
-		Mode:         stat.Mode(), // <-- CAPTURE MODE
+		Mode:         stat.Mode(),
 		CreatedAt:    time.Now(),
 	}
 	var hBuf bytes.Buffer
@@ -512,7 +519,6 @@ func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, 
 	if err != nil {
 		return err
 	}
-	// defer outFile.Close() // Manuel closing
 
 	iv := make([]byte, aes.BlockSize)
 	io.ReadFull(inFile, iv)
