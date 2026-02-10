@@ -96,7 +96,7 @@ _Alias : `dl`, `download`_
 - **Index Local** : AES-256-GCM.
 - **Header Fichier** : AES-256-GCM.
 - **Contenu** : AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC).
-- **Dépendances** : `github.com/gotd/td`.
+- **Dépendances** : `github.com/gotd/td`, `github.com/matoous/go-nanoid/v2`.
 
 ---
 
