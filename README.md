@@ -102,6 +102,30 @@ _Alias : `dl`, `download`_
 ./televault rm 12345 67890
 ```
 
+### 🌐 Interface Web
+
+Lance une interface web locale pour gérer ton vault depuis le navigateur (upload, download, suppression, sync).
+
+```bash
+# Port par défaut : 8080
+./televault w
+
+# Port custom
+./televault w 3000
+```
+
+_Alias : `w`, `web`_
+
+Endpoints API disponibles :
+
+| Méthode  | Route              | Description          |
+|----------|--------------------|----------------------|
+| `GET`    | `/api/files`       | Lister les fichiers  |
+| `POST`   | `/api/upload`      | Upload un fichier    |
+| `GET`    | `/api/download/:id`| Télécharger un fichier|
+| `DELETE` | `/api/files/:id`   | Supprimer un fichier |
+| `POST`   | `/api/sync`        | Synchroniser l'index |
+
 ---
 
 ## 🔐 Cryptographie
@@ -110,6 +134,7 @@ _Alias : `dl`, `download`_
 - **Index Local** : AES-256-GCM.
 - **Header Fichier** : AES-256-GCM.
 - **Contenu** : AES-256-CTR + HMAC-SHA256 (Encrypt-then-MAC).
+- **Anti-Ban** : Délai aléatoire (jitter 2-7s) entre chaque upload batch pour réduire le risque de ban.
 - **Dépendances** : `github.com/gotd/td`, `github.com/matoous/go-nanoid/v2`.
 
 ---
