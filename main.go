@@ -42,8 +42,9 @@ var (
 )
 
 const (
-	ITERATIONS = 600000
-	VERSION    = "v6.7-ANTI-BAN"
+	ITERATIONS     = 600000
+	VERSION        = "v7.0-HARDENED"
+	maxHeaderLen   = 1 << 20 // 1 MB max pour un header chiffré
 )
 
 func init() {
@@ -58,6 +59,7 @@ func init() {
 type FileEntry struct {
 	ID         int       `json:"id"`
 	Name       string    `json:"name"`
+	Path       string    `json:"path"`
 	RemoteName string    `json:"remote_name"`
 	Size       int64     `json:"size"`
 	UploadAt   time.Time `json:"uploaded_at"`
@@ -109,8 +111,10 @@ func pbkdf2(password, salt []byte, iter, keyLen int, h func() hash.Hash) []byte 
 	return dk[:keyLen]
 }
 
-func deriveKey(password, salt []byte) []byte {
-	return pbkdf2(password, salt, ITERATIONS, 32, sha256.New)
+// deriveKeys dérive deux sous-clés distinctes : une pour le chiffrement, une pour le HMAC.
+func deriveKeys(password, salt []byte) (encKey, macKey []byte) {
+	combined := pbkdf2(password, salt, ITERATIONS, 64, sha256.New)
+	return combined[:32], combined[32:]
 }
 
 func generateID() string {
@@ -124,25 +128,43 @@ func generateID() string {
 func (idx *FileIndex) SaveEncrypted() error {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
+	return idx.saveEncryptedLocked()
+}
+
+func (idx *FileIndex) saveEncryptedLocked() error {
 	jsonData, err := json.Marshal(idx.Files)
 	if err != nil {
 		return err
 	}
 	salt := make([]byte, 16)
-	rand.Read(salt)
-	key := deriveKey([]byte(vaultKey), salt)
-	block, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCM(block)
+	if _, err := rand.Read(salt); err != nil {
+		return fmt.Errorf("rand salt: %w", err)
+	}
+	encKey, _ := deriveKeys([]byte(vaultKey), salt)
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		return fmt.Errorf("aes: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return fmt.Errorf("gcm: %w", err)
+	}
 	nonce := make([]byte, gcm.NonceSize())
-	rand.Read(nonce)
+	if _, err := rand.Read(nonce); err != nil {
+		return fmt.Errorf("rand nonce: %w", err)
+	}
 	encryptedData := gcm.Seal(nonce, nonce, jsonData, nil)
 	f, err := os.Create(idx.Path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	f.Write(salt)
-	f.Write(encryptedData)
+	if _, err := f.Write(salt); err != nil {
+		return err
+	}
+	if _, err := f.Write(encryptedData); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -161,20 +183,26 @@ func (idx *FileIndex) LoadEncrypted() error {
 	if _, err := io.ReadFull(f, salt); err != nil {
 		return err
 	}
-	key := deriveKey([]byte(vaultKey), salt)
+	encKey, _ := deriveKeys([]byte(vaultKey), salt)
 	encryptedData, err := io.ReadAll(f)
 	if err != nil {
 		return err
 	}
-	block, _ := aes.NewCipher(key)
-	gcm, _ := cipher.NewGCM(block)
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		return fmt.Errorf("aes: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return fmt.Errorf("gcm: %w", err)
+	}
 	if len(encryptedData) < gcm.NonceSize() {
-		return fmt.Errorf("corrupt")
+		return fmt.Errorf("corrupt index: too short")
 	}
 	nonce, ciphertext := encryptedData[:gcm.NonceSize()], encryptedData[gcm.NonceSize():]
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return fmt.Errorf("bad key")
+		return fmt.Errorf("bad key or corrupt index")
 	}
 	return json.Unmarshal(plaintext, &idx.Files)
 }
@@ -186,12 +214,15 @@ func main() {
 		printUsage()
 		return
 	}
-	if appID == 0 || vaultKey == "" {
-		fmt.Println("❌ Erreur config (ENV)")
+	if appID == 0 || appHash == "" || phoneNum == "" || vaultKey == "" {
+		fmt.Println("❌ Erreur config (ENV): TELEGRAM_APP_ID, TELEGRAM_APP_HASH, TELEGRAM_PHONE et VAULT_KEY requis")
 		return
 	}
 	index := NewIndex()
-	index.LoadEncrypted()
+	if err := index.LoadEncrypted(); err != nil {
+		fmt.Printf("❌ Impossible de charger l'index: %v\n", err)
+		return
+	}
 	ctx := context.Background()
 
 	switch os.Args[1] {
@@ -215,11 +246,8 @@ func main() {
 				}
 
 				// --- ANTI-BAN DELAY ---
-				// Si ce n'est pas le dernier fichier, on attend un peu
 				if i < len(filesToUpload)-1 {
-					// Génère un nombre entre 0 et 4
 					n, _ := rand.Int(rand.Reader, big.NewInt(5))
-					// Délai total = 2s + (0..4s) = 2 à 6 secondes
 					delay := time.Duration(n.Int64()+2) * time.Second
 					fmt.Printf("⏳ Pause tactique anti-ban (%s)...\n", delay)
 					time.Sleep(delay)
@@ -236,12 +264,18 @@ func main() {
 
 		var ids []int
 		outDir := "."
+		outDirSet := false
 
 		for _, arg := range os.Args[2:] {
 			if id, err := strconv.Atoi(arg); err == nil {
 				ids = append(ids, id)
 			} else {
-				outDir = arg
+				if outDirSet {
+					fmt.Printf("⚠️ Argument ignoré (outDir déjà défini): %s\n", arg)
+				} else {
+					outDir = arg
+					outDirSet = true
+				}
 			}
 		}
 
@@ -271,6 +305,13 @@ func main() {
 		runWithClient(ctx, func(ctx context.Context, client *telegram.Client, api *tg.Client) error {
 			return syncFromTelegram(ctx, api, index)
 		})
+	case "web", "w":
+		port := "8080"
+		if len(os.Args) >= 3 {
+			port = os.Args[2]
+		}
+		startWeb(ctx, index, port)
+
 	case "remove", "rm":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: remove <id> [id2] ...")
@@ -314,7 +355,8 @@ func printUsage() {
   dl, download <id>... [out] Decrypted Download (Batch)
   ls, list                  List Index
   s, sync                   Smart Sync
-  rm, remove <id>...        Delete File (Batch)`)
+  rm, remove <id>...        Delete File (Batch)
+  w, web [port]             Start Web UI (default :8080)`)
 }
 
 // --- Helpers Batch ---
@@ -349,21 +391,30 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 		return err
 	}
 	defer srcFile.Close()
-	stat, _ := srcFile.Stat()
+	stat, err := srcFile.Stat()
+	if err != nil {
+		return fmt.Errorf("stat: %w", err)
+	}
 
 	tmpPath := filepath.Join(os.TempDir(), "vault-"+generateID())
 	dstFile, err := os.Create(tmpPath)
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmpPath)
 
 	// Crypto
 	salt := make([]byte, 16)
-	rand.Read(salt)
-	dstFile.Write(salt)
-	masterKey := deriveKey([]byte(vaultKey), salt)
+	if _, err := rand.Read(salt); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("rand salt: %w", err)
+	}
+	if _, err := dstFile.Write(salt); err != nil {
+		dstFile.Close()
+		return err
+	}
+	encKey, macKey := deriveKeys([]byte(vaultKey), salt)
 
-	// AJOUT MODE DANS LE HEADER
 	header := SecureHeader{
 		OriginalName: filepath.Base(filePath),
 		Size:         stat.Size(),
@@ -371,29 +422,63 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 		CreatedAt:    time.Now(),
 	}
 	var hBuf bytes.Buffer
-	gob.NewEncoder(&hBuf).Encode(header)
+	if err := gob.NewEncoder(&hBuf).Encode(header); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("encode header: %w", err)
+	}
 
-	block, _ := aes.NewCipher(masterKey)
-	gcm, _ := cipher.NewGCM(block)
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("aes: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		dstFile.Close()
+		return fmt.Errorf("gcm: %w", err)
+	}
 	nonce := make([]byte, gcm.NonceSize())
-	rand.Read(nonce)
+	if _, err := rand.Read(nonce); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("rand nonce: %w", err)
+	}
 	encHeader := gcm.Seal(nonce, nonce, hBuf.Bytes(), nil)
-	binary.Write(dstFile, binary.LittleEndian, uint32(len(encHeader)))
-	dstFile.Write(encHeader)
+	if err := binary.Write(dstFile, binary.LittleEndian, uint32(len(encHeader))); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("write header len: %w", err)
+	}
+	if _, err := dstFile.Write(encHeader); err != nil {
+		dstFile.Close()
+		return err
+	}
 
 	iv := make([]byte, aes.BlockSize)
-	rand.Read(iv)
-	dstFile.Write(iv)
+	if _, err := rand.Read(iv); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("rand iv: %w", err)
+	}
+	if _, err := dstFile.Write(iv); err != nil {
+		dstFile.Close()
+		return err
+	}
 	stream := cipher.NewCTR(block, iv)
-	mac := hmac.New(sha256.New, masterKey)
-	io.Copy(&cipher.StreamWriter{S: stream, W: io.MultiWriter(dstFile, mac)}, srcFile)
-	dstFile.Write(mac.Sum(nil))
+	mac := hmac.New(sha256.New, macKey)
+	if _, err := io.Copy(&cipher.StreamWriter{S: stream, W: io.MultiWriter(dstFile, mac)}, srcFile); err != nil {
+		dstFile.Close()
+		return fmt.Errorf("encrypt: %w", err)
+	}
+	if _, err := dstFile.Write(mac.Sum(nil)); err != nil {
+		dstFile.Close()
+		return err
+	}
 	dstFile.Close()
-	defer os.Remove(tmpPath)
 
 	// Upload
 	remoteName := generateID()
-	tmpInfo, _ := os.Stat(tmpPath)
+	tmpInfo, err := os.Stat(tmpPath)
+	if err != nil {
+		return fmt.Errorf("stat tmp: %w", err)
+	}
 	fmt.Printf("📤 Upload %.2f MB...", float64(tmpInfo.Size())/1024/1024)
 	u := uploader.NewUploader(api).WithProgress(progress{total: tmpInfo.Size()})
 	f, err := u.FromPath(ctx, tmpPath)
@@ -401,7 +486,10 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 		return err
 	}
 
-	randID, _ := rand.Int(rand.Reader, big.NewInt(1<<63-1))
+	randID, err := rand.Int(rand.Reader, big.NewInt(1<<63-1))
+	if err != nil {
+		return fmt.Errorf("rand id: %w", err)
+	}
 	updates, err := api.MessagesSendMedia(ctx, &tg.MessagesSendMediaRequest{
 		Peer:     &tg.InputPeerSelf{},
 		Media:    &tg.InputMediaUploadedDocument{File: f, Attributes: []tg.DocumentAttributeClass{&tg.DocumentAttributeFilename{FileName: remoteName}}},
@@ -412,40 +500,12 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 		return err
 	}
 
-	var msgID int
-	switch u := updates.(type) {
-	case *tg.Updates:
-		for _, upd := range u.Updates {
-			if m, ok := upd.(*tg.UpdateMessageID); ok {
-				msgID = m.ID
-				break
-			}
-			if m, ok := upd.(*tg.UpdateNewMessage); ok {
-				if msg, ok := m.Message.(*tg.Message); ok {
-					msgID = msg.ID
-					break
-				}
-			}
-		}
-	case *tg.UpdatesCombined:
-		for _, upd := range u.Updates {
-			if m, ok := upd.(*tg.UpdateMessageID); ok {
-				msgID = m.ID
-				break
-			}
-			if m, ok := upd.(*tg.UpdateNewMessage); ok {
-				if msg, ok := m.Message.(*tg.Message); ok {
-					msgID = msg.ID
-					break
-				}
-			}
-		}
-	case *tg.UpdateShortSentMessage:
-		msgID = u.ID
-	}
-
+	msgID := extractMsgID(updates)
 	if msgID != 0 {
-		index.Add(FileEntry{ID: msgID, Name: filepath.Base(filePath), RemoteName: remoteName, Size: stat.Size(), UploadAt: time.Now()})
+		index.AddNoSave(FileEntry{ID: msgID, Name: filepath.Base(filePath), RemoteName: remoteName, Size: stat.Size(), UploadAt: time.Now()})
+		if err := index.SaveEncrypted(); err != nil {
+			return fmt.Errorf("save index: %w", err)
+		}
 		fmt.Printf(" ✓  ID: %d  %s\n", msgID, header.OriginalName)
 	} else {
 		fmt.Println(" ⚠️ ID perdu (faire sync)")
@@ -453,7 +513,7 @@ func upload(ctx context.Context, api *tg.Client, index *FileIndex, filePath stri
 	return nil
 }
 
-func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, outDir string) error {
+func download(ctx context.Context, api *tg.Client, _ *FileIndex, msgID int, outDir string) error {
 	msgs, err := api.MessagesGetMessages(ctx, []tg.InputMessageClass{&tg.InputMessageID{ID: msgID}})
 	if err != nil {
 		return err
@@ -491,17 +551,35 @@ func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, 
 	defer inFile.Close()
 
 	salt := make([]byte, 16)
-	io.ReadFull(inFile, salt)
-	masterKey := deriveKey([]byte(vaultKey), salt)
+	if _, err := io.ReadFull(inFile, salt); err != nil {
+		return fmt.Errorf("read salt: %w", err)
+	}
+	encKey, macKey := deriveKeys([]byte(vaultKey), salt)
 
 	var hLen uint32
-	binary.Read(inFile, binary.LittleEndian, &hLen)
+	if err := binary.Read(inFile, binary.LittleEndian, &hLen); err != nil {
+		return fmt.Errorf("read header len: %w", err)
+	}
+	if hLen > maxHeaderLen {
+		return fmt.Errorf("header trop grand (%d bytes), fichier corrompu", hLen)
+	}
 	encH := make([]byte, hLen)
-	io.ReadFull(inFile, encH)
+	if _, err := io.ReadFull(inFile, encH); err != nil {
+		return fmt.Errorf("read header: %w", err)
+	}
 
-	block, _ := aes.NewCipher(masterKey)
-	gcm, _ := cipher.NewGCM(block)
+	block, err := aes.NewCipher(encKey)
+	if err != nil {
+		return fmt.Errorf("aes: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return fmt.Errorf("gcm: %w", err)
+	}
 
+	if len(encH) < gcm.NonceSize() {
+		return fmt.Errorf("header corrompu: trop court")
+	}
 	nonce, ciphertext := encH[:gcm.NonceSize()], encH[gcm.NonceSize():]
 	plainH, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
@@ -509,7 +587,9 @@ func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, 
 	}
 
 	var h SecureHeader
-	gob.NewDecoder(bytes.NewReader(plainH)).Decode(&h)
+	if err := gob.NewDecoder(bytes.NewReader(plainH)).Decode(&h); err != nil {
+		return fmt.Errorf("decode header: %w", err)
+	}
 
 	outPath := filepath.Join(outDir, h.OriginalName)
 	if info, err := os.Stat(outDir); err == nil && !info.IsDir() {
@@ -521,8 +601,11 @@ func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, 
 	}
 
 	iv := make([]byte, aes.BlockSize)
-	io.ReadFull(inFile, iv)
-	mac := hmac.New(sha256.New, masterKey)
+	if _, err := io.ReadFull(inFile, iv); err != nil {
+		outFile.Close()
+		return fmt.Errorf("read iv: %w", err)
+	}
+	mac := hmac.New(sha256.New, macKey)
 	limitR := io.LimitReader(inFile, h.Size)
 
 	stream := cipher.NewCTR(block, iv)
@@ -535,16 +618,20 @@ func download(ctx context.Context, api *tg.Client, index *FileIndex, msgID int, 
 	}
 
 	expected := make([]byte, 32)
-	io.ReadFull(inFile, expected)
+	if _, err := io.ReadFull(inFile, expected); err != nil {
+		outFile.Close()
+		os.Remove(outPath)
+		return fmt.Errorf("read MAC: %w", err)
+	}
 
-	outFile.Close() // Close before chmod
+	outFile.Close()
 
 	if !hmac.Equal(mac.Sum(nil), expected) {
 		os.Remove(outPath)
 		return fmt.Errorf("MAC invalid")
 	}
 
-	// RESTAURATION PERMISSIONS
+	// Restauration permissions
 	restoreMode := h.Mode
 	if restoreMode == 0 {
 		restoreMode = 0o644
@@ -574,9 +661,10 @@ func deleteFile(ctx context.Context, api *tg.Client, index *FileIndex, msgID int
 		fmt.Print("⚠️ Le fichier était absent de l'index local")
 	}
 	fmt.Println()
+	err = index.saveEncryptedLocked()
 	index.mu.Unlock()
 
-	return index.SaveEncrypted()
+	return err
 }
 
 func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) error {
@@ -585,7 +673,6 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 	limit := 50
 	countNew := 0
 
-	// Map pour lister les fichiers trouvés sur le serveur
 	seenIDs := make(map[int]bool)
 
 	for {
@@ -610,7 +697,6 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 			break
 		}
 
-		// Gestion de la pagination (offsetID)
 		for _, m := range msgs {
 			if msg, ok := m.(*tg.Message); ok {
 				offsetID = msg.ID
@@ -630,7 +716,6 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 				continue
 			}
 
-			// Identification
 			remoteName := "unknown"
 			for _, a := range doc.Attributes {
 				if fn, ok := a.(*tg.DocumentAttributeFilename); ok {
@@ -641,10 +726,8 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 				continue
 			}
 
-			// On a vu ce fichier sur le serveur, il est vivant.
 			seenIDs[msg.ID] = true
 
-			// S'il est déjà dans l'index, on passe au suivant
 			if _, ok := index.Files[msg.ID]; ok {
 				continue
 			}
@@ -672,20 +755,35 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 
 			r := bytes.NewReader(data)
 			salt := make([]byte, 16)
-			r.Read(salt)
-			masterKey := deriveKey([]byte(vaultKey), salt)
+			if _, err := io.ReadFull(r, salt); err != nil {
+				continue
+			}
+			encKey, _ := deriveKeys([]byte(vaultKey), salt)
 			var hLen uint32
-			binary.Read(r, binary.LittleEndian, &hLen)
+			if err := binary.Read(r, binary.LittleEndian, &hLen); err != nil {
+				continue
+			}
+			if hLen > maxHeaderLen {
+				continue
+			}
 
 			if int64(len(data)) < 16+4+int64(hLen) {
-				index.Add(FileEntry{ID: msg.ID, Name: "??? (Need DL)", RemoteName: remoteName, Size: doc.Size, UploadAt: time.Unix(int64(msg.Date), 0)})
+				index.AddNoSave(FileEntry{ID: msg.ID, Name: "??? (Need DL)", RemoteName: remoteName, Size: doc.Size, UploadAt: time.Unix(int64(msg.Date), 0)})
 				continue
 			}
 
 			encH := make([]byte, hLen)
-			r.Read(encH)
-			block, _ := aes.NewCipher(masterKey)
-			gcm, _ := cipher.NewGCM(block)
+			if _, err := io.ReadFull(r, encH); err != nil {
+				continue
+			}
+			block, err := aes.NewCipher(encKey)
+			if err != nil {
+				continue
+			}
+			gcm, err := cipher.NewGCM(block)
+			if err != nil {
+				continue
+			}
 			if len(encH) < gcm.NonceSize() {
 				continue
 			}
@@ -695,9 +793,10 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 
 			if err == nil {
 				var h SecureHeader
-				gob.NewDecoder(bytes.NewReader(plainH)).Decode(&h)
-				index.Add(FileEntry{ID: msg.ID, Name: h.OriginalName, RemoteName: remoteName, Size: doc.Size, UploadAt: time.Unix(int64(msg.Date), 0)})
-				countNew++
+				if err := gob.NewDecoder(bytes.NewReader(plainH)).Decode(&h); err == nil {
+					index.AddNoSave(FileEntry{ID: msg.ID, Name: h.OriginalName, RemoteName: remoteName, Size: doc.Size, UploadAt: time.Unix(int64(msg.Date), 0)})
+					countNew++
+				}
 			}
 		}
 		if len(msgs) < limit {
@@ -705,7 +804,7 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 		}
 	}
 
-	// Nettoyage de l'index : suppression des entrées locales qui ne sont plus sur le serveur
+	// Nettoyage de l'index
 	countDel := 0
 	index.mu.Lock()
 	for id := range index.Files {
@@ -716,7 +815,9 @@ func syncFromTelegram(ctx context.Context, api *tg.Client, index *FileIndex) err
 	}
 	index.mu.Unlock()
 
-	index.SaveEncrypted()
+	if err := index.SaveEncrypted(); err != nil {
+		return fmt.Errorf("save index: %w", err)
+	}
 	fmt.Printf("\n✓  Sync terminé: %d nouveaux ajoutés, %d orphelins supprimés de l'index.\n", countNew, countDel)
 	return nil
 }
@@ -729,11 +830,11 @@ func NewIndex() *FileIndex {
 	return &FileIndex{Files: make(map[int]FileEntry), Path: path}
 }
 
-func (idx *FileIndex) Add(e FileEntry) {
+// AddNoSave ajoute une entrée sans sauvegarder (pour les opérations batch).
+func (idx *FileIndex) AddNoSave(e FileEntry) {
 	idx.mu.Lock()
 	idx.Files[e.ID] = e
 	idx.mu.Unlock()
-	idx.SaveEncrypted()
 }
 
 func listLocal(idx *FileIndex) {
@@ -782,6 +883,33 @@ func (a terminalAuth) SignUp(_ context.Context) (auth.UserInfo, error) { return 
 
 func (a terminalAuth) AcceptTermsOfService(_ context.Context, _ tg.HelpTermsOfService) error {
 	return nil
+}
+
+// extractMsgID extrait l'ID du message depuis la réponse d'envoi Telegram.
+func extractMsgID(updates tg.UpdatesClass) int {
+	switch u := updates.(type) {
+	case *tg.Updates:
+		return findMsgIDInUpdates(u.Updates)
+	case *tg.UpdatesCombined:
+		return findMsgIDInUpdates(u.Updates)
+	case *tg.UpdateShortSentMessage:
+		return u.ID
+	}
+	return 0
+}
+
+func findMsgIDInUpdates(updates []tg.UpdateClass) int {
+	for _, upd := range updates {
+		if m, ok := upd.(*tg.UpdateMessageID); ok {
+			return m.ID
+		}
+		if m, ok := upd.(*tg.UpdateNewMessage); ok {
+			if msg, ok := m.Message.(*tg.Message); ok {
+				return msg.ID
+			}
+		}
+	}
+	return 0
 }
 
 func extractDoc(msg tg.MessageClass) *tg.Document {

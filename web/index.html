@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TELEVAULT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#08080a;--bg2:#101014;--bg3:#18181c;--bg4:#222228;
+  --red:#ff2a2a;--red2:#cc1111;--red-dim:#2a0808;--red-glow:#ff2a2a40;
+  --accent:#ff4444;--accent2:#ff6666;
+  --text:#e0e0e0;--text-dim:#555;--text-muted:#888;
+  --border:#1a1a1e;--border-hl:#ff2a2a33;
+  --radius:8px;
+  --font:'Inter',system-ui,-apple-system,sans-serif;
+  --mono:'JetBrains Mono','SF Mono','Fira Code',monospace;
+}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;overflow-x:hidden;font-size:14px;-webkit-font-smoothing:antialiased}
+a{color:var(--accent2);text-decoration:none}
+::selection{background:var(--red-dim);color:var(--red)}
+
+body::before{
+  content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;
+  background:radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.4) 100%);
+}
+
+/* Header */
+.header{
+  background:rgba(16,16,20,.85);border-bottom:1px solid var(--border);
+  padding:14px 28px;display:flex;align-items:center;gap:16px;
+  position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);
+}
+.logo{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--red);letter-spacing:3px;text-shadow:0 0 20px var(--red-glow),0 0 40px rgba(255,42,42,.15)}
+.logo span{color:var(--text);font-weight:400;opacity:.7}
+.header-status{margin-left:auto;font-size:11px;color:var(--text-dim);font-family:var(--mono);letter-spacing:1px;text-transform:uppercase}
+.header-status::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:8px;box-shadow:0 0 6px var(--red);animation:pulse 2s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.header-actions{display:flex;gap:8px}
+
+/* Buttons */
+.btn{
+  background:var(--bg3);border:1px solid var(--border);color:var(--text-muted);
+  padding:8px 16px;border-radius:var(--radius);cursor:pointer;
+  font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.5px;
+  transition:all .2s ease;display:inline-flex;align-items:center;gap:6px;text-transform:uppercase;
+}
+.btn:hover{border-color:var(--red);color:var(--red);background:var(--red-dim);box-shadow:0 0 12px var(--red-glow)}
+.btn:active{transform:scale(.97)}
+.btn.danger{color:var(--text-dim)}
+.btn.danger:hover{border-color:var(--red);color:#ff6666;background:var(--red-dim)}
+.btn:disabled{opacity:.3;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-icon{font-size:14px;line-height:1}
+
+/* Container */
+.container{max-width:1200px;margin:0 auto;padding:24px 28px}
+
+/* Drop Zone */
+.dropzone{
+  border:1px dashed var(--border);border-radius:var(--radius);
+  padding:36px;text-align:center;transition:all .3s ease;margin-bottom:24px;
+  cursor:pointer;position:relative;background:var(--bg2);
+}
+.dropzone:hover{border-color:#333;background:var(--bg3)}
+.dropzone.active{border-color:var(--red);background:var(--red-dim);box-shadow:inset 0 0 30px var(--red-glow)}
+.dropzone.active .dz-text{color:var(--red)}
+.dz-icon{font-size:24px;margin-bottom:6px;opacity:.4;transition:opacity .3s}
+.dropzone:hover .dz-icon,.dropzone.active .dz-icon{opacity:.8}
+.dz-text{color:var(--text-dim);font-size:13px;transition:color .3s}
+.dz-text b{color:var(--text-muted);font-size:13px;font-weight:600;display:block;margin-bottom:3px;font-family:var(--mono);letter-spacing:1px}
+.dropzone input{display:none}
+
+/* Upload progress */
+.upload-queue{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.upload-item{
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);
+  padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:12px;
+}
+.upload-item .name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:11px}
+.upload-item .status{color:var(--red);font-size:11px;font-family:var(--mono)}
+.upload-item .status.error{color:#ff6666}
+.upload-bar{width:100px;height:3px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.upload-bar-fill{height:100%;background:var(--red);transition:width .3s;width:0;box-shadow:0 0 8px var(--red-glow)}
+
+/* Breadcrumb */
+.breadcrumb{
+  display:flex;align-items:center;gap:4px;margin-bottom:16px;
+  font-family:var(--mono);font-size:12px;flex-wrap:wrap;
+}
+.breadcrumb-item{
+  color:var(--text-dim);cursor:pointer;padding:4px 8px;border-radius:4px;
+  transition:all .15s;
+}
+.breadcrumb-item:hover{color:var(--red);background:var(--red-dim)}
+.breadcrumb-item.current{color:var(--text);cursor:default}
+.breadcrumb-item.current:hover{color:var(--text);background:none}
+.breadcrumb-sep{color:var(--text-dim);opacity:.3;font-size:10px}
+
+/* Toolbar */
+.toolbar{
+  display:flex;align-items:center;gap:12px;margin-bottom:4px;
+  padding:12px 0;border-bottom:1px solid var(--border);
+}
+.toolbar .count{font-size:11px;color:var(--text-dim);font-family:var(--mono);letter-spacing:.5px}
+.toolbar .spacer{flex:1}
+
+/* Table */
+.file-table{width:100%;border-collapse:collapse}
+.file-table th{
+  text-align:left;padding:10px 14px;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;
+  color:var(--text-dim);border-bottom:1px solid var(--border);font-weight:500;
+  position:sticky;top:53px;background:var(--bg);z-index:10;font-family:var(--mono);
+}
+.file-table td{padding:12px 14px;border-bottom:1px solid #111;font-size:13px;transition:all .15s ease}
+.file-table tr{transition:background .15s ease}
+.file-table tbody tr:hover td{background:var(--bg2)}
+.file-table .icon-col{width:36px;text-align:center;font-size:16px;opacity:.5}
+.file-table .name-col{font-weight:500;cursor:default}
+.file-table .name-col.folder{cursor:pointer;color:var(--accent2)}
+.file-table .name-col.folder:hover{color:var(--red);text-decoration:underline}
+.file-table .size-col{color:var(--text-muted);width:100px;text-align:right;font-family:var(--mono);font-size:12px}
+.file-table .date-col{color:var(--text-dim);width:160px;font-size:12px}
+.file-table .actions-col{width:100px;text-align:right;white-space:nowrap}
+.file-table .actions-col .btn{padding:5px 10px;font-size:10px}
+.file-table .folder-count{color:var(--text-dim);font-size:11px;font-family:var(--mono)}
+
+/* Empty state */
+.empty{text-align:center;padding:80px 20px;color:var(--text-dim)}
+.empty .icon{font-size:40px;margin-bottom:16px;opacity:.3}
+.empty p{font-size:13px;line-height:1.6}
+
+/* Toast */
+.toast-container{position:fixed;bottom:20px;right:20px;z-index:1000;display:flex;flex-direction:column;gap:8px}
+.toast{
+  background:rgba(16,16,20,.9);border:1px solid var(--border);border-radius:var(--radius);
+  padding:12px 18px;font-size:12px;font-family:var(--font);
+  animation:slideIn .3s ease;min-width:260px;backdrop-filter:blur(8px);
+}
+.toast.success{border-color:var(--red);color:var(--accent2)}
+.toast.error{border-color:#ff4444;color:#ff6666}
+.toast.info{border-color:#333;color:var(--text-muted)}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+
+/* Modal */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:200;
+  display:none;align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+.modal-overlay.active{display:flex}
+.modal{
+  background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+  padding:28px;min-width:380px;max-width:90vw;
+}
+.modal h3{color:var(--red);font-size:13px;margin-bottom:16px;letter-spacing:2px;font-family:var(--mono);text-transform:uppercase}
+.modal p{font-size:13px;margin-bottom:20px;color:var(--text-muted);line-height:1.5}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end}
+
+/* Spinner */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--red);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media(max-width:768px){
+  .container{padding:16px}
+  .header{padding:12px 16px}
+  .file-table .date-col{display:none}
+  .dropzone{padding:24px}
+  .modal{min-width:auto;margin:16px}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">TELE<span>VAULT</span></div>
+  <div class="header-status" id="status">IDLE</div>
+  <div class="header-actions">
+    <button class="btn" onclick="doSync()" id="syncBtn">SYNC</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="dropzone" id="dropzone">
+    <div class="dz-icon">&#9650;</div>
+    <div class="dz-text">
+      <b>DROP FILES OR FOLDERS</b>
+      drag &amp; drop or click to browse
+    </div>
+    <input type="file" id="fileInput" multiple>
+  </div>
+
+  <div class="upload-queue" id="uploadQueue"></div>
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div class="toolbar">
+    <span class="count" id="fileCount">0 items</span>
+    <div class="spacer"></div>
+    <button class="btn" onclick="loadFiles()">REFRESH</button>
+  </div>
+
+  <table class="file-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Name</th>
+        <th style="text-align:right">Size</th>
+        <th>Uploaded</th>
+        <th style="text-align:right">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="fileBody"></tbody>
+  </table>
+
+  <div class="empty" id="emptyState" style="display:none">
+    <div class="icon">&#128274;</div>
+    <p>Vault is empty.<br>Drop files or folders above to begin.</p>
+  </div>
+</div>
+
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h3>CONFIRM DELETE</h3>
+    <p id="deleteMsg">Delete this file from Telegram?</p>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeDelete()">CANCEL</button>
+      <button class="btn danger" onclick="confirmDelete()" id="deleteConfirmBtn">DELETE</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
+<script>
+const API = '/api';
+let allFiles = [];
+let currentPath = '';
+let deleteTarget = null;
+
+// --- Toast ---
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3500);
+}
+
+function setStatus(text) {
+  document.getElementById('status').textContent = text;
+}
+
+// --- Folder tree logic ---
+
+function getFilePath(f) {
+  // path field contains full relative path (e.g. "docs/readme.txt")
+  // fallback to name for old entries without path
+  return f.path || f.name;
+}
+
+function getDir(filePath) {
+  const i = filePath.lastIndexOf('/');
+  return i < 0 ? '' : filePath.substring(0, i);
+}
+
+function getItemsInDir(dir) {
+  const folders = new Map(); // folderName -> { count, totalSize }
+  const files = [];
+
+  for (const f of allFiles) {
+    const fp = getFilePath(f);
+    const fd = getDir(fp);
+
+    if (dir === '') {
+      // root: file is here if no slash, folder if has slash
+      if (fd === '') {
+        files.push(f);
+      } else {
+        const topFolder = fp.split('/')[0];
+        if (!folders.has(topFolder)) folders.set(topFolder, { count: 0, totalSize: 0 });
+        const info = folders.get(topFolder);
+        info.count++;
+        info.totalSize += f.size || 0;
+      }
+    } else {
+      // in a subfolder
+      if (fd === dir) {
+        files.push(f);
+      } else if (fd.startsWith(dir + '/')) {
+        const rest = fd.substring(dir.length + 1);
+        const nextFolder = rest.split('/')[0];
+        if (!folders.has(nextFolder)) folders.set(nextFolder, { count: 0, totalSize: 0 });
+        const info = folders.get(nextFolder);
+        info.count++;
+        info.totalSize += f.size || 0;
+      }
+    }
+  }
+
+  return { folders, files };
+}
+
+// --- Load & Render ---
+
+async function loadFiles() {
+  setStatus('LOADING...');
+  try {
+    const res = await fetch(`${API}/files`);
+    if (!res.ok) throw new Error(await res.text());
+    allFiles = await res.json();
+    if (!allFiles) allFiles = [];
+    render();
+    setStatus('ONLINE');
+  } catch (e) {
+    toast('Load failed: ' + e.message, 'error');
+    setStatus('ERROR');
+  }
+}
+
+function navigateTo(path) {
+  currentPath = path;
+  render();
+}
+
+function render() {
+  renderBreadcrumb();
+  renderTable();
+}
+
+function renderBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  const parts = currentPath ? currentPath.split('/') : [];
+
+  let html = `<span class="breadcrumb-item${currentPath === '' ? ' current' : ''}" onclick="navigateTo('')">VAULT</span>`;
+
+  let accumulated = '';
+  for (let i = 0; i < parts.length; i++) {
+    accumulated += (i > 0 ? '/' : '') + parts[i];
+    const isLast = i === parts.length - 1;
+    const path = accumulated;
+    html += `<span class="breadcrumb-sep">/</span>`;
+    html += `<span class="breadcrumb-item${isLast ? ' current' : ''}" onclick="navigateTo('${esc(path)}')">${esc(parts[i])}</span>`;
+  }
+  bc.innerHTML = html;
+}
+
+function renderTable() {
+  const body = document.getElementById('fileBody');
+  const empty = document.getElementById('emptyState');
+  const count = document.getElementById('fileCount');
+
+  if (allFiles.length === 0 && currentPath === '') {
+    body.innerHTML = '';
+    empty.style.display = 'block';
+    count.textContent = '0 items';
+    return;
+  }
+
+  empty.style.display = 'none';
+
+  const { folders, files } = getItemsInDir(currentPath);
+
+  // Sort folders alphabetically, files by date desc
+  const sortedFolders = [...folders.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const sortedFiles = [...files].sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
+
+  const totalItems = sortedFolders.length + sortedFiles.length;
+  count.textContent = `${totalItems} item${totalItems !== 1 ? 's' : ''}`;
+
+  if (totalItems === 0 && currentPath !== '') {
+    body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:40px">Empty folder</td></tr>`;
+    return;
+  }
+  if (totalItems === 0) {
+    empty.style.display = 'block';
+    body.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+
+  // Back row if in subfolder
+  if (currentPath !== '') {
+    const parent = getDir(currentPath);
+    html += `<tr style="cursor:pointer" onclick="navigateTo('${esc(parent)}')">
+      <td class="icon-col" style="opacity:.3">..</td>
+      <td class="name-col folder" colspan="4" style="color:var(--text-dim)">..</td>
+    </tr>`;
+  }
+
+  // Folders
+  for (const [name, info] of sortedFolders) {
+    const fullPath = currentPath ? currentPath + '/' + name : name;
+    html += `<tr onclick="navigateTo('${esc(fullPath)}')" style="cursor:pointer">
+      <td class="icon-col">&#128193;</td>
+      <td class="name-col folder">${esc(name)}</td>
+      <td class="size-col"><span class="folder-count">${info.count} file${info.count > 1 ? 's' : ''}</span></td>
+      <td class="date-col"></td>
+      <td class="actions-col"></td>
+    </tr>`;
+  }
+
+  // Files
+  for (const f of sortedFiles) {
+    html += `<tr>
+      <td class="icon-col">${getIcon(f.name)}</td>
+      <td class="name-col">${esc(f.name)}</td>
+      <td class="size-col">${formatSize(f.size)}</td>
+      <td class="date-col">${formatDate(f.uploaded_at)}</td>
+      <td class="actions-col">
+        <button class="btn" onclick="event.stopPropagation();doDownload(${f.id},'${esc(f.name)}')">DL</button>
+        <button class="btn danger" onclick="event.stopPropagation();askDelete(${f.id},'${esc(f.name)}')">RM</button>
+      </td>
+    </tr>`;
+  }
+
+  body.innerHTML = html;
+}
+
+// --- Recursive folder drop ---
+
+async function getEntriesRecursive(entry, basePath) {
+  const results = [];
+  if (entry.isFile) {
+    const file = await new Promise((res, rej) => entry.file(res, rej));
+    results.push({ file, path: basePath + file.name });
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+      for (const child of batch) {
+        const sub = await getEntriesRecursive(child, basePath + entry.name + '/');
+        results.push(...sub);
+      }
+    } while (batch.length > 0);
+  }
+  return results;
+}
+
+async function getDroppedFiles(dataTransfer) {
+  const items = dataTransfer.items;
+  const results = [];
+
+  if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+    // Modern API: can traverse folders
+    const entries = [];
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) entries.push(entry);
+    }
+    for (const entry of entries) {
+      const sub = await getEntriesRecursive(entry, '');
+      results.push(...sub);
+    }
+  } else {
+    // Fallback: flat file list
+    for (const file of dataTransfer.files) {
+      results.push({ file, path: file.name });
+    }
+  }
+  return results;
+}
+
+// --- Upload ---
+
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('active'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('active'));
+dropzone.addEventListener('drop', async e => {
+  e.preventDefault();
+  dropzone.classList.remove('active');
+  const items = await getDroppedFiles(e.dataTransfer);
+  if (items.length > 0) {
+    await handleFileItems(items);
+    loadFiles();
+  }
+});
+fileInput.addEventListener('change', async () => {
+  const items = [];
+  for (const file of fileInput.files) {
+    // Prepend current path for files selected via browse
+    const path = currentPath ? currentPath + '/' + file.name : file.name;
+    items.push({ file, path });
+  }
+  fileInput.value = '';
+  if (items.length > 0) {
+    await handleFileItems(items);
+    loadFiles();
+  }
+});
+
+async function handleFileItems(items) {
+  for (const item of items) {
+    await uploadFile(item.file, item.path);
+  }
+}
+
+async function uploadFile(file, path) {
+  const queue = document.getElementById('uploadQueue');
+  const item = document.createElement('div');
+  item.className = 'upload-item';
+  item.innerHTML = `
+    <span style="font-size:14px;opacity:.5">${getIcon(file.name)}</span>
+    <span class="name" title="${esc(path)}">${esc(path)}</span>
+    <div class="upload-bar"><div class="upload-bar-fill"></div></div>
+    <span class="status"><span class="spinner"></span></span>
+  `;
+  queue.appendChild(item);
+  const bar = item.querySelector('.upload-bar-fill');
+  const status = item.querySelector('.status');
+
+  try {
+    setStatus('UPLOADING...');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('path', path);
+
+    const xhr = new XMLHttpRequest();
+    await new Promise((resolve, reject) => {
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) bar.style.width = Math.round(e.loaded / e.total * 100) + '%';
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) resolve();
+        else reject(new Error(xhr.responseText || `HTTP ${xhr.status}`));
+      };
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.open('POST', `${API}/upload`);
+      xhr.send(form);
+    });
+
+    bar.style.width = '100%';
+    status.textContent = 'OK';
+    status.className = 'status';
+    toast(`Uploaded: ${file.name}`, 'success');
+    setStatus('ONLINE');
+  } catch (e) {
+    status.textContent = 'FAIL';
+    status.className = 'status error';
+    toast(`Upload failed: ${file.name} - ${e.message}`, 'error');
+    setStatus('ERROR');
+  }
+
+  setTimeout(() => item.remove(), 4000);
+}
+
+// --- Download ---
+function doDownload(id, name) {
+  toast(`Downloading ${name}...`, 'info');
+  setStatus('DOWNLOADING...');
+  const a = document.createElement('a');
+  a.href = `${API}/download/${id}`;
+  a.download = name;
+  a.click();
+  setTimeout(() => setStatus('ONLINE'), 2000);
+}
+
+// --- Delete ---
+function askDelete(id, name) {
+  deleteTarget = id;
+  document.getElementById('deleteMsg').textContent = `Delete "${name}" (ID: ${id}) from Telegram?`;
+  document.getElementById('deleteModal').classList.add('active');
+}
+function closeDelete() {
+  document.getElementById('deleteModal').classList.remove('active');
+  deleteTarget = null;
+}
+async function confirmDelete() {
+  if (!deleteTarget) return;
+  const id = deleteTarget;
+  const btn = document.getElementById('deleteConfirmBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  setStatus('DELETING...');
+  try {
+    const res = await fetch(`${API}/files/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    toast(`Deleted ID ${id}`, 'success');
+    loadFiles();
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+  btn.textContent = 'DELETE';
+  closeDelete();
+  setStatus('ONLINE');
+}
+
+// --- Sync ---
+async function doSync() {
+  const btn = document.getElementById('syncBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> SYNC';
+  setStatus('SYNCING...');
+  try {
+    const res = await fetch(`${API}/sync`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    toast(`Sync: +${data.added} new, -${data.removed} orphans`, 'success');
+    loadFiles();
+  } catch (e) {
+    toast('Sync failed: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+  btn.textContent = 'SYNC';
+  setStatus('ONLINE');
+}
+
+// --- Helpers ---
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+}
+
+function formatDate(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  if (isNaN(d)) return '-';
+  return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', {hour:'2-digit',minute:'2-digit'});
+}
+
+function getIcon(name) {
+  if (!name) return '\u{1F4C4}';
+  const ext = name.split('.').pop().toLowerCase();
+  const map = {
+    pdf:'\u{1F4D5}',doc:'\u{1F4DD}',docx:'\u{1F4DD}',txt:'\u{1F4DD}',
+    jpg:'\u{1F5BC}',jpeg:'\u{1F5BC}',png:'\u{1F5BC}',gif:'\u{1F5BC}',svg:'\u{1F5BC}',webp:'\u{1F5BC}',
+    mp4:'\u{1F3AC}',mkv:'\u{1F3AC}',avi:'\u{1F3AC}',mov:'\u{1F3AC}',
+    mp3:'\u{1F3B5}',flac:'\u{1F3B5}',wav:'\u{1F3B5}',ogg:'\u{1F3B5}',
+    zip:'\u{1F4E6}',tar:'\u{1F4E6}',gz:'\u{1F4E6}',rar:'\u{1F4E6}','7z':'\u{1F4E6}',
+    js:'\u{1F4DC}',go:'\u{1F4DC}',py:'\u{1F4DC}',rs:'\u{1F4DC}',ts:'\u{1F4DC}',
+    exe:'\u{2699}',bin:'\u{2699}',
+  };
+  return map[ext] || '\u{1F4C4}';
+}
+
+// --- Init ---
+loadFiles();
+</script>
+</body>
+</html>
